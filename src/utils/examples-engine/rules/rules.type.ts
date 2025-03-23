@@ -1,0 +1,82 @@
+/**
+ * The context that will be passed to each example resolution rule.
+ */
+export interface ExampleResolutionContext {
+    /**
+     * The OpenAPI response definition for a specific response code.
+     * This typically contains properties like `content`, which in turn may include
+     * an `example`, an `examples` object, or a `schema` for fallback generation.
+     */
+    responseDefinition: any;
+    
+    /**
+     * The full OpenAPI document.
+     * This is needed for resolving any references (i.e., `$ref`) and to provide additional context.
+     */
+    openapi: any;
+  
+    /**
+     * (Optional) Additional metadata, such as the operation details (path, method, etc.)
+     */
+    operation?: any;
+  }
+  
+
+/**
+ * The result of resolving an example.
+ * It contains the example(s) and optionally the example names.
+ */
+export interface ExampleResolutionResult {
+    // The resolved example content. For multiple examples, this array will contain each one.
+    examples: any[];
+    // Optionally, an array of example names (this may be used for the Response model update)
+    exampleNames?: string[];
+}
+
+/**
+ * The interface that all example resolution rules must implement.
+ */
+export interface IExampleRule {
+    /**
+     * Sets the next rule in the chain.
+     */
+    setNext(rule: IExampleRule): IExampleRule;
+    /**
+     * Attempts to handle the given context.
+     * Returns a result if the rule applies, or null otherwise.
+     */
+    handle(context: ExampleResolutionContext): Promise<ExampleResolutionResult | null>;
+}
+
+/**
+ * An abstract base class for example resolution rules.
+ * It implements the chain logic: if a rule doesn't produce a result,
+ * it passes the context to the next rule.
+ */
+export abstract class BaseExampleRule implements IExampleRule {
+    private nextRule: IExampleRule;
+
+    public setNext(rule: IExampleRule): IExampleRule {
+        this.nextRule = rule;
+        return rule;
+    }
+
+    public async handle(context: ExampleResolutionContext): Promise<ExampleResolutionResult | null> {
+        const result = await this.process(context);
+        if (result !== null) {
+            // If the current rule produced a result, return it and break the chain.
+            return result;
+        }
+        // Otherwise, delegate to the next rule if it exists.
+        if (this.nextRule) {
+            return this.nextRule.handle(context);
+        }
+        return null;
+    }
+
+    /**
+     * Process the context to try to resolve an example.
+     * Return a valid ExampleResolutionResult if successful, or null if not.
+     */
+    protected abstract process(context: ExampleResolutionContext): Promise<ExampleResolutionResult | null>;
+}

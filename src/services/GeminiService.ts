@@ -26,6 +26,7 @@ export class GeminiService implements AIServiceInterface {
         const cleanedResponse = response.replace(/```json|```/g, '');
       
         // Parse the cleaned JSON string
+        console.log(cleanedResponse);
         
         const jsonData = JSON.parse(cleanedResponse);
       
