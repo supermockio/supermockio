@@ -27,6 +27,38 @@ export class ResponseService {
     return (await this.responseModel.findOne({ statusCode: name }).populate("service").exec());
   }
 
+  async findOneByServiceCriteria(
+    serviceId: Types.ObjectId, 
+    path: string, 
+    method: string, 
+    statusCode?: number, 
+    exampleName?: string
+  ): Promise<Response> {
+    const query: any = { service: serviceId, path, method };
+    if (statusCode) {
+      query.statusCode = statusCode;
+    }
+    if (exampleName) {
+      query.exampleName = exampleName;
+    }
+    return await this.responseModel.findOne(query).exec();
+  }
+
+  async findRandomResponseByEndpoint(
+    serviceId: Types.ObjectId, 
+    path: string, 
+    method: string
+  ): Promise<Response> {
+    const responses = await this.responseModel.find({ service: serviceId, path, method }).exec();
+    if (!responses || responses.length === 0) {
+      return null;
+    }
+    const randomIndex = Math.floor(Math.random() * responses.length);
+    return responses[randomIndex];
+  }
+  
+  
+
   async findOneByService(serviceId: Types.ObjectId, path: string, method: string, statusCode: number): Promise<Response> {
     const query = { service: serviceId, path, method };
     
