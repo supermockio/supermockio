@@ -1,4 +1,3 @@
-
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
 import { Service } from './service.schema';
@@ -13,7 +12,7 @@ export class Response {
   statusCode: number;
 
   @ApiProperty()
-  @Prop({ type: "object"})
+  @Prop({ type: "object" })
   content: object;
 
   @ApiProperty()
@@ -22,12 +21,15 @@ export class Response {
 
   @ApiProperty()
   @Prop()
-  path: string
+  path: string;
   
   @ApiProperty()
   @Prop()
-  method: string
+  method: string;
 
+  @ApiProperty({ required: false, description: 'Name of the example (if applicable)' })
+  @Prop({ required: false })
+  exampleName?: string;
 }
 
 export const ResponseSchema = SchemaFactory.createForClass(Response);

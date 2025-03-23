@@ -5,7 +5,8 @@ import mongoose from "mongoose";
 export class CreateResponseDto {
     statusCode: number;
     content: object;
-    service: createServiceDto | Service | mongoose.Types.ObjectId
-    path: string
-    method: string
- }
+    service: createServiceDto | Service | mongoose.Types.ObjectId;
+    path: string;
+    method: string;
+    exampleName?: string;
+}
