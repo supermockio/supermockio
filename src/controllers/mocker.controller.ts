@@ -4,14 +4,16 @@ import { Request, Response } from "express"
 import { JwtAuthGuard } from "src/auth/guards/jwt-auth.guard"
 import { ResponseService } from "src/services/response.service"
 import { ServiceService } from "src/services/service.service"
+import { CollaboratorService } from "src/services/collaborator.service"
 
 @ApiExcludeController()
 @Controller("/api/mocks/:name/:version/*")
-@UseGuards(JwtAuthGuard) // Add JWT authentication guard
+@UseGuards(JwtAuthGuard)
 export class MockerController {
   constructor(
     private readonly responseService: ResponseService,
     private readonly serviceService: ServiceService,
+    private readonly collaboratorService: CollaboratorService,
   ) {}
 
   @All()
@@ -32,6 +34,15 @@ export class MockerController {
     const service = await this.serviceService.findOneByNameAndVersion(responseCriteria.name, responseCriteria.version)
     if (!service) {
       throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
+    }
+
+    // Check if user has access to this service
+    const userId = request.user["userId"]
+    const isOwner = await this.collaboratorService.isOwner(service._id, userId)
+    const isCollaborator = await this.collaboratorService.isCollaborator(service._id, userId)
+
+    if (!isOwner && !isCollaborator) {
+      throw new HttpException("Unauthorized access to this service", HttpStatus.FORBIDDEN)
     }
 
     let fetchedRes = await this.responseService.findOneByServiceCriteria(

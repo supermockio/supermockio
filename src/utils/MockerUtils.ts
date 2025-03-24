@@ -171,7 +171,6 @@ export class MockerUtils {
                     schema["additionalProperties"] ? this.generateExample(schema["additionalProperties"], openapi) : {}
                 );
             default:
-                console.log(schema);
                 throw new Error(`Unsupported schema type: ${schema.type}`);
         }
     }

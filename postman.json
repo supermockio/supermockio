@@ -1,0 +1,71 @@
+{
+    "info": {
+      "name": "Auth API Collection",
+      "_postman_id": "b1234567-89ab-cdef-0123-456789abcdef",
+      "description": "Collection for testing auth endpoints of the SuperMockio app.",
+      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+      {
+        "name": "Register",
+        "request": {
+          "method": "POST",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "mode": "raw",
+            "raw": "{\n  \"username\": \"johndoe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"Password123!\"\n}"
+          },
+          "url": {
+            "raw": "http://localhost:3000/api/auth/register",
+            "protocol": "http",
+            "host": [
+              "localhost"
+            ],
+            "port": "3000",
+            "path": [
+              "api",
+              "auth",
+              "register"
+            ]
+          }
+        },
+        "response": []
+      },
+      {
+        "name": "Login",
+        "request": {
+          "method": "POST",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": {
+            "mode": "raw",
+            "raw": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"Password123!\"\n}"
+          },
+          "url": {
+            "raw": "http://localhost:3000/api/auth/login",
+            "protocol": "http",
+            "host": [
+              "localhost"
+            ],
+            "port": "3000",
+            "path": [
+              "api",
+              "auth",
+              "login"
+            ]
+          }
+        },
+        "response": []
+      }
+    ]
+  }
+  

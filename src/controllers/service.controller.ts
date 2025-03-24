@@ -10,6 +10,7 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  Request,
 } from "@nestjs/common"
 import { ServiceService } from "src/services/service.service"
 import { createServiceDto } from "src/dtos/createServiceDto"
@@ -22,13 +23,13 @@ import { FileUploadDto } from "src/dtos/FileUploadDto"
 import { Service } from "src/schemas/service.schema"
 import { Response } from "src/schemas/response.schema"
 import { JwtAuthGuard } from "src/auth/guards/jwt-auth.guard"
-import { Roles } from "src/auth/decorators/roles.decorator"
-import { RolesGuard } from "src/auth/guards/roles.guard"
 import { Express } from "express"
+import { Permission } from "src/auth/decorators/permission.decorator"
+import { ServicePermissionGuard } from "src/auth/guards/service-permission.guard"
 
 @ApiTags("services")
 @Controller("/api/services")
-@UseGuards(JwtAuthGuard, RolesGuard) // Add JWT authentication and roles guards
+@UseGuards(JwtAuthGuard)
 export class ServiceController {
   constructor(
     private readonly serviceService: ServiceService,
@@ -49,11 +50,14 @@ export class ServiceController {
       }),
     ],
   })
-  async getAllServices(): Promise<Service[]> {
-    return await this.serviceService.findAll()
+  async getAllServices(@Request() req): Promise<Service[]> {
+    // Get services where user is owner or collaborator
+    return await this.serviceService.findAllForUser(req.user.userId)
   }
 
   @Get("/:name/:version")
+  @UseGuards(ServicePermissionGuard)
+  @Permission("view")
   async getServiceResponses(
     @Param("name") name: string,
     @Param("version") version: string,
@@ -62,6 +66,7 @@ export class ServiceController {
     version = decodeURIComponent(version)
 
     const service = await this.serviceService.findOneByNameAndVersion(name, version)
+  
     if (!service) throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
     const responses = await this.responseService.findByService(service._id)
     return { service, responses }
@@ -79,6 +84,8 @@ export class ServiceController {
     },
   })
   @Get("/spec/:name/:version")
+  @UseGuards(ServicePermissionGuard)
+  @Permission("view")
   async getServiceSpec(@Param("name") name: string, @Param("version") version: string): Promise<any> {
     name = decodeURIComponent(name)
     version = decodeURIComponent(version)
@@ -97,7 +104,8 @@ export class ServiceController {
     example: new MockerResponse(200, "Responses Deleted successfully"),
   })
   @Delete("/:name/:version")
-  @Roles("admin") // Only admin can delete services
+  @UseGuards(ServicePermissionGuard)
+  @Permission("delete")
   async deleteServicesResponses(@Param("name") name: string, @Param("version") version: string): Promise<any> {
     name = decodeURIComponent(name)
     version = decodeURIComponent(version)
@@ -127,10 +135,10 @@ export class ServiceController {
       },
     }),
   })
-  @Roles("admin") // Only admin can create services
   async createService(
     @UploadedFile() file: Express.Multer.File,
     @Query("override") override: number = 0,
+    @Request() req,
   ): Promise<any> {
     const newService = new createServiceDto()
     newService.openapi = parse(file.buffer.toString())
@@ -142,6 +150,11 @@ export class ServiceController {
     if (override == 0 && exist) {
       if (exist) throw new HttpException("Service already exists", HttpStatus.CONFLICT)
     } else if (exist) {
+      // Check if user is the owner before allowing override
+      if (exist.owner.toString() !== req.user.userId) {
+        throw new HttpException("Only the owner can override a service", HttpStatus.FORBIDDEN)
+      }
+
       // delete the service and its responses if override != 0 and service exists
       await this.responseService.deleteByService(exist._id)
       await this.serviceService.delete(exist._id)
@@ -150,6 +163,10 @@ export class ServiceController {
     newService.name = newService.openapi.info.title
     newService.version = newService.openapi.info.version
     newService.description = newService.openapi.info.description ?? "-"
+
+    // Set the current user as the owner
+    newService.owner = req.user.userId
+
     const createdService = await this.serviceService.create(newService)
     if (!createdService) throw new HttpException("Error while adding the service", HttpStatus.INTERNAL_SERVER_ERROR)
     // save responses in DB with the new schema
