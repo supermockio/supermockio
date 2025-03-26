@@ -1,4 +1,4 @@
-import { Injectable, type CanActivate, type ExecutionContext } from "@nestjs/common"
+import { Injectable, type CanActivate, type ExecutionContext, ForbiddenException } from "@nestjs/common"
 import { Reflector } from "@nestjs/core"
 import { Observable } from "rxjs"
 
@@ -13,7 +13,24 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest()
-    return requiredRoles.some((role) => user.roles?.includes(role))
+
+    if (!user || !user.roles) {
+      throw new ForbiddenException({
+        message: "User has no roles assigned",
+        error: "Forbidden"
+      })
+    }
+
+    const hasRole = requiredRoles.some((role) => user.roles?.includes(role))
+
+    if (!hasRole) {
+      throw new ForbiddenException({
+        message: `User does not have required roles: ${requiredRoles.join(", ")}`,
+        error: "Forbidden"
+      })
+    }
+
+    return true
   }
 }
 

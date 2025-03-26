@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose"
 import { ApiProperty } from "@nestjs/swagger"
-import mongoose, { type HydratedDocument, Types } from "mongoose"
+import mongoose, { type HydratedDocument, type Types } from "mongoose"
 import { User } from "./user.schema"
 
 export type ServiceDocument = HydratedDocument<Service>
@@ -31,7 +31,7 @@ export class Service {
 
   @ApiProperty({ description: "Users who can view this service" })
   @Prop({ type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], default: [] })
-  collaborators: (Types.ObjectId)[]
+  collaborators: Types.ObjectId[]
 
   constructor(id, name, version, description, openapi) {
     this._id = id
@@ -42,5 +42,6 @@ export class Service {
   }
 }
 
-export const ServiceSchema = SchemaFactory.createForClass(Service)
 
+export const ServiceSchema = SchemaFactory.createForClass(Service)
+ServiceSchema.index({ owner: 1, name: 1, version: 1 }, { unique: true })

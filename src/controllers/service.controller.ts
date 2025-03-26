@@ -11,6 +11,7 @@ import {
   UseGuards,
   UseInterceptors,
   Request,
+  Req,
 } from "@nestjs/common"
 import { ServiceService } from "src/services/service.service"
 import { createServiceDto } from "src/dtos/createServiceDto"
@@ -55,19 +56,21 @@ export class ServiceController {
     return await this.serviceService.findAllForUser(req.user.userId)
   }
 
-  @Get("/:name/:version")
+  @Get("/:owner/:name/:version")
   @UseGuards(ServicePermissionGuard)
   @Permission("view")
   async getServiceResponses(
+    @Req() req,
+    @Param("owner") owner: string,
     @Param("name") name: string,
     @Param("version") version: string,
   ): Promise<{ service: Service; responses: Response[] }> {
+    owner = decodeURIComponent(owner)
     name = decodeURIComponent(name)
     version = decodeURIComponent(version)
 
-    const service = await this.serviceService.findOneByNameAndVersion(name, version)
-  
-    if (!service) throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
+    const service = req.service
+
     const responses = await this.responseService.findByService(service._id)
     return { service, responses }
   }
@@ -83,16 +86,14 @@ export class ServiceController {
       },
     },
   })
-  @Get("/spec/:name/:version")
+  @Get("/spec/:owner/:name/:version")
   @UseGuards(ServicePermissionGuard)
   @Permission("view")
-  async getServiceSpec(@Param("name") name: string, @Param("version") version: string): Promise<any> {
-    name = decodeURIComponent(name)
-    version = decodeURIComponent(version)
-    const service = await this.serviceService.findOneByNameAndVersion(name, version)
-    if (!service) {
-      throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
-    }
+  async getServiceSpec(
+    @Req() req,
+  ): Promise<any> {
+
+    const service = req.service
     // Return only the openapi field
     return { openapi: service.openapi }
   }
@@ -103,14 +104,20 @@ export class ServiceController {
     type: MockerResponse,
     example: new MockerResponse(200, "Responses Deleted successfully"),
   })
-  @Delete("/:name/:version")
+  @Delete("/:owner/:name/:version")
   @UseGuards(ServicePermissionGuard)
   @Permission("delete")
-  async deleteServicesResponses(@Param("name") name: string, @Param("version") version: string): Promise<any> {
+  async deleteServicesResponses(
+    @Req() req,
+    @Param("owner") owner: string,
+    @Param("name") name: string,
+    @Param("version") version: string,
+  ): Promise<any> {
+    owner = decodeURIComponent(owner)
     name = decodeURIComponent(name)
     version = decodeURIComponent(version)
-    const service = await this.serviceService.findOneByNameAndVersion(name, version)
-    if (!service) throw new HttpException("Service doesn't exists", HttpStatus.NOT_FOUND)
+
+    const service = req.service
     await this.responseService.deleteByService(service._id)
     await this.serviceService.delete(service._id)
     return new MockerResponse(200, "Responses Deleted successfully")
@@ -142,16 +149,20 @@ export class ServiceController {
   ): Promise<any> {
     const newService = new createServiceDto()
     newService.openapi = parse(file.buffer.toString())
-    const exist = await this.serviceService.findOneByNameAndVersion(
+
+    // Check if service already exists for this owner
+    const exist = await this.serviceService.findOneByOwnerNameAndVersion(
+      req.user.username,
       newService.openapi.info.title,
       newService.openapi.info.version,
     )
+
     // override query param used to override an existing service
     if (override == 0 && exist) {
       if (exist) throw new HttpException("Service already exists", HttpStatus.CONFLICT)
     } else if (exist) {
       // Check if user is the owner before allowing override
-      if (exist.owner.toString() !== req.user.userId) {
+      if (exist.owner._id.toString() !== req.user.userId) {
         throw new HttpException("Only the owner can override a service", HttpStatus.FORBIDDEN)
       }
 
@@ -175,6 +186,7 @@ export class ServiceController {
     return new MockerResponse(201, {
       message: "Service added successfully",
       service: {
+        owner: req.user.username,
         name: createdService.name,
         version: createdService.version,
       },

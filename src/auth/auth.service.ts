@@ -5,13 +5,17 @@ import { Model } from "mongoose"
 import * as bcrypt from "bcrypt"
 import { User, type UserDocument } from "src/schemas/user.schema"
 import { JwtPayload, RegisterDto } from "src/dtos/auth.dto"
+import { LoggingService } from "src/logging/logging.service"
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private jwtService: JwtService,
-  ) {}
+    private loggingService: LoggingService
+  ) {
+    this.loggingService.setContext('AuthService');
+  }
 
   async register(registerDto: RegisterDto): Promise<{ access_token: string }> {
     const { username, email, password } = registerDto
@@ -22,6 +26,7 @@ export class AuthService {
     })
 
     if (existingUser) {
+      this.loggingService.warn(`Registration failed: User with email ${email} or username ${username} already exists`)
       throw new ConflictException("User with this email or username already exists")
     }
 
@@ -36,6 +41,10 @@ export class AuthService {
       roles: ["user"],
     })
 
+    this.loggingService.log(`User registered successfully: ${username} (${email})`, null, {
+      userId: newUser._id.toString(),
+    })
+
     // Generate JWT token
     return this.generateToken(newUser)
   }
@@ -44,12 +53,16 @@ export class AuthService {
     const user = await this.userModel.findOne({ email })
 
     if (!user) {
+      this.loggingService.warn(`Login failed: User with email ${email} not found`)
       throw new UnauthorizedException("Invalid credentials")
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password)
 
     if (!isPasswordValid) {
+      this.loggingService.warn(`Login failed: Invalid password for user ${email}`, null, {
+        userId: user._id.toString(),
+      })
       throw new UnauthorizedException("Invalid credentials")
     }
 

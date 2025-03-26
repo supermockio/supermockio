@@ -5,9 +5,11 @@ import { JwtAuthGuard } from "src/auth/guards/jwt-auth.guard"
 import { ResponseService } from "src/services/response.service"
 import { ServiceService } from "src/services/service.service"
 import { CollaboratorService } from "src/services/collaborator.service"
+import { ServicePermissionGuard } from "src/auth/guards/service-permission.guard"
+import { Permission } from "src/auth/decorators/permission.decorator"
 
 @ApiExcludeController()
-@Controller("/api/mocks/:name/:version/*")
+@Controller("/api/mocks/:owner/:name/:version/*")
 @UseGuards(JwtAuthGuard)
 export class MockerController {
   constructor(
@@ -17,8 +19,10 @@ export class MockerController {
   ) {}
 
   @All()
+  @UseGuards(ServicePermissionGuard)
+  @Permission("view")
   async handleMocks(
-    @Req() request: Request,
+    @Req() request,
     @Param() params: string[],
     @Res() res: Response,
     @Headers("X-SuperMockio-Status") hdrStatus: number,
@@ -26,24 +30,10 @@ export class MockerController {
   ) {
     const responseCriteria = {
       method: request.method.toLowerCase(),
-      path: "/" + request.path.split("/").slice(5).join("/"),
-      name: decodeURIComponent(params["name"]),
-      version: decodeURIComponent(params["version"]),
+      path: "/" + request.path.split("/").slice(6).join("/"),
     }
 
-    const service = await this.serviceService.findOneByNameAndVersion(responseCriteria.name, responseCriteria.version)
-    if (!service) {
-      throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
-    }
-
-    // Check if user has access to this service
-    const userId = request.user["userId"]
-    const isOwner = await this.collaboratorService.isOwner(service._id, userId)
-    const isCollaborator = await this.collaboratorService.isCollaborator(service._id, userId)
-
-    if (!isOwner && !isCollaborator) {
-      throw new HttpException("Unauthorized access to this service", HttpStatus.FORBIDDEN)
-    }
+    const service = request.service
 
     let fetchedRes = await this.responseService.findOneByServiceCriteria(
       service._id,

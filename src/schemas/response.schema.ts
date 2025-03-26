@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import mongoose, { HydratedDocument } from 'mongoose';
+import mongoose, { HydratedDocument, Types } from 'mongoose';
 import { Service } from './service.schema';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -7,6 +7,8 @@ export type ResponseDocument = HydratedDocument<Response>;
 
 @Schema()
 export class Response {
+  _id: Types.ObjectId;
+  
   @ApiProperty()
   @Prop()
   statusCode: number;

@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common"
+import { Module, type MiddlewareConsumer, type NestModule } from "@nestjs/common"
 import { MongooseModule } from "@nestjs/mongoose"
 import { ConfigService } from "./config/config.service"
 import { ConfigModule } from "./config/config.module"
@@ -14,10 +14,13 @@ import { User, UserSchema } from "./schemas/user.schema"
 import { CollaboratorService } from "./services/collaborator.service"
 import { CollaboratorController } from "./controllers/collaborator.controller"
 import { ServicePermissionGuard } from "./auth/guards/service-permission.guard"
+import { LoggingModule } from "./logging/logging.module"
+import { LoggingMiddleware } from "./logging/logging.middleware"
 
 @Module({
   imports: [
     ConfigModule,
+    LoggingModule,
     // MongoDB Connection Config
     MongooseModule.forRoot(new ConfigService().getMongoConfig()),
     // Service Schema DB config
@@ -32,5 +35,9 @@ import { ServicePermissionGuard } from "./auth/guards/service-permission.guard"
   controllers: [ServiceController, MockerController, CollaboratorController],
   providers: [ServiceService, ResponseService, GeminiService, CollaboratorService, ServicePermissionGuard],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggingMiddleware).forRoutes("*")
+  }
+}
 
