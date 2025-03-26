@@ -1,3 +1,4 @@
+src/app.module.ts
 import { Module } from "@nestjs/common"
 import { MongooseModule } from "@nestjs/mongoose"
 import { ConfigService } from "./config/config.service"
@@ -35,6 +36,7 @@ import { ServicePermissionGuard } from "./auth/guards/service-permission.guard"
 export class AppModule {}
 
 
+src/auth/auth.controller.ts
 import { Body, Controller, Post, UseGuards, Request } from "@nestjs/common"
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger"
 import { LoginDto, RegisterDto } from "src/dtos/auth.dto"
@@ -65,6 +67,7 @@ export class AuthController {
 }
 
 
+src/auth/auth.module.ts
 import { Module } from "@nestjs/common"
 import { JwtModule } from "@nestjs/jwt"
 import { MongooseModule } from "@nestjs/mongoose"
@@ -91,6 +94,7 @@ import { LocalStrategy } from "./strategies/local.strategy"
 export class AuthModule {}
 
 
+src/auth/auth.service.ts
 import { Injectable, ConflictException, UnauthorizedException } from "@nestjs/common"
 import { JwtService } from "@nestjs/jwt"
 import { InjectModel } from "@nestjs/mongoose"
@@ -168,23 +172,44 @@ export class AuthService {
 }
 
 
+src/auth/decorators/permission.decorator.ts
 import { SetMetadata } from "@nestjs/common"
 
 export const Permission = (permission: string) => SetMetadata("permission", permission)
 
 
+src/auth/decorators/roles.decorator.ts
 import { SetMetadata } from "@nestjs/common"
 
 export const Roles = (...roles: string[]) => SetMetadata("roles", roles)
 
 
-import { Injectable } from "@nestjs/common"
+src/auth/guards/jwt-auth.guard.ts
+import { Injectable, type ExecutionContext, UnauthorizedException } from "@nestjs/common"
 import { AuthGuard } from "@nestjs/passport"
 
 @Injectable()
-export class JwtAuthGuard extends AuthGuard("jwt") {}
+export class JwtAuthGuard extends AuthGuard("jwt") {
+  canActivate(context: ExecutionContext) {
+    return super.canActivate(context)
+  }
+
+  handleRequest(err, user, info) {
+    if (err || !user) {
+      throw new UnauthorizedException({
+        message: "Authentication failed",
+        error: "Unauthorized",
+        details: {
+          reason: info?.message || err?.message || "Invalid or expired token",
+        },
+      })
+    }
+    return user
+  }
+}
 
 
+src/auth/guards/local-auth.guard.ts
 import { Injectable } from "@nestjs/common"
 import { AuthGuard } from "@nestjs/passport"
 
@@ -192,7 +217,8 @@ import { AuthGuard } from "@nestjs/passport"
 export class LocalAuthGuard extends AuthGuard("local") {}
 
 
-import { Injectable, type CanActivate, type ExecutionContext } from "@nestjs/common"
+src/auth/guards/roles.guard.ts
+import { Injectable, type CanActivate, type ExecutionContext, ForbiddenException } from "@nestjs/common"
 import { Reflector } from "@nestjs/core"
 import { Observable } from "rxjs"
 
@@ -207,17 +233,41 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest()
-    return requiredRoles.some((role) => user.roles?.includes(role))
+
+    if (!user || !user.roles) {
+      throw new ForbiddenException({
+        message: "User has no roles assigned",
+        error: "Forbidden"
+      })
+    }
+
+    const hasRole = requiredRoles.some((role) => user.roles?.includes(role))
+
+    if (!hasRole) {
+      throw new ForbiddenException({
+        message: `User does not have required roles: ${requiredRoles.join(", ")}`,
+        error: "Forbidden"
+      })
+    }
+
+    return true
   }
 }
 
 
-import { Injectable, type CanActivate, type ExecutionContext, HttpException, HttpStatus } from "@nestjs/common"
+src/auth/guards/service-permission.guard.ts
+import {
+  Injectable,
+  type CanActivate,
+  type ExecutionContext,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common"
 import { Reflector } from "@nestjs/core"
 import { CollaboratorService } from "src/services/collaborator.service"
 import { ServiceService } from "src/services/service.service"
 
-@Injectable() 
+@Injectable()
 export class ServicePermissionGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
@@ -235,14 +285,21 @@ export class ServicePermissionGuard implements CanActivate {
     const user = request.user
     const params = request.params
 
-    // Get service by name and version
+    // Get service by owner, name and version
+    const owner = decodeURIComponent(params.owner)
     const name = decodeURIComponent(params.name)
     const version = decodeURIComponent(params.version)
-    const service = await this.serviceService.findOneByNameAndVersion(name, version)
+
+    const service = await this.serviceService.findOneByOwnerNameAndVersion(owner, name, version)
 
     if (!service) {
-      throw new HttpException("Service not found", HttpStatus.NOT_FOUND)
+      throw new NotFoundException({
+        message: `Service not found: ${owner}/${name}/${version}`,
+        error: "Not Found"
+      })
     }
+
+    request.service = service
 
     // Check if user is owner
     const isOwner = await this.collaboratorService.isOwner(service._id, user.userId)
@@ -253,15 +310,26 @@ export class ServicePermissionGuard implements CanActivate {
     // If permission is 'view', check if user is a collaborator
     if (requiredPermission === "view") {
       const isCollaborator = await this.collaboratorService.isCollaborator(service._id, user.userId)
-      return isCollaborator
+      if (isCollaborator) {
+        return true
+      }
+
+      throw new ForbiddenException({
+        message: `You don't have permission to view this service: ${owner}/${name}/${version}`,
+        error: "Forbidden"
+      })
     }
 
     // For 'delete' or other permissions, only owner is allowed
-    return false
+    throw new ForbiddenException({
+      message: `Only the owner can ${requiredPermission} this service: ${owner}/${name}/${version}`,
+      error: "Forbidden"
+    })
   }
 }
 
 
+src/auth/strategies/jwt.strategy.ts
 import { Injectable } from "@nestjs/common"
 import { PassportStrategy } from "@nestjs/passport"
 import { ExtractJwt, Strategy } from "passport-jwt"
@@ -289,6 +357,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 }
 
 
+src/auth/strategies/local.strategy.ts
 import { Injectable, UnauthorizedException } from "@nestjs/common"
 import { PassportStrategy } from "@nestjs/passport"
 import { Strategy } from "passport-local"
@@ -310,6 +379,7 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
 }
 
 
+src/config/config.module.ts
 import { Global, Module } from '@nestjs/common';
 
 import { ConfigService } from './config.service';
@@ -325,6 +395,7 @@ import { ConfigService } from './config.service';
     exports: [ConfigService],
 })
 export class ConfigModule { }
+src/config/config.service.ts
 import * as dotenv from 'dotenv';
 
 export class ConfigService {
@@ -352,120 +423,122 @@ export class ConfigService {
 
     }
 }
+src/controllers/collaborator.controller.ts
 import {
-    Body,
-    Controller,
-    Delete,
-    Get,
-    HttpException,
-    HttpStatus,
-    Param,
-    Post,
-    Request,
-    UseGuards,
-  } from "@nestjs/common"
-  import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger"
-  import { JwtAuthGuard } from "src/auth/guards/jwt-auth.guard"
-  import { AddCollaboratorDto, RemoveCollaboratorDto } from "src/dtos/collaborator.dto"
-  import { ServiceService } from "src/services/service.service"
-  import { CollaboratorService } from "src/services/collaborator.service"
-  import { MockerResponse } from "src/utils/MockerResponse"
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpException,
+  HttpStatus,
+  Param,
+  Post,
+  Request,
+  UseGuards,
+} from "@nestjs/common"
+import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger"
+import { JwtAuthGuard } from "src/auth/guards/jwt-auth.guard"
+import { AddCollaboratorDto, RemoveCollaboratorDto } from "src/dtos/collaborator.dto"
+import { ServiceService } from "src/services/service.service"
+import { CollaboratorService } from "src/services/collaborator.service"
+import { MockerResponse } from "src/utils/MockerResponse"
 import { Permission } from "src/auth/decorators/permission.decorator"
 import { ServicePermissionGuard } from "src/auth/guards/service-permission.guard"
-  
-  @ApiTags("collaborators")
-  @Controller("/api/services/:name/:version/collaborators")
-  @UseGuards(JwtAuthGuard)
-  export class CollaboratorController {
-    constructor(
-      private readonly serviceService: ServiceService,
-      private readonly collaboratorService: CollaboratorService,
-    ) {}
-  
-    @Get()
-    @UseGuards(ServicePermissionGuard)
-    @Permission("view")
-    @ApiOperation({ summary: "Get all collaborators for a service" })
-    @ApiResponse({
-      status: 200,
-      description: "List of collaborators for the service",
-    })
-    async getCollaborators(@Param("name") name: string, @Param("version") version: string, @Request() req) {
-      name = decodeURIComponent(name)
-      version = decodeURIComponent(version)
-  
-      const service = await this.serviceService.findOneByNameAndVersion(name, version)
-      if (!service) {
-        throw new HttpException("Service not found", HttpStatus.NOT_FOUND)
-      }
-  
-      return this.collaboratorService.getCollaborators(service._id)
+
+@ApiTags("collaborators")
+@Controller("/api/services/:owner/:name/:version/collaborators")
+@UseGuards(JwtAuthGuard)
+export class CollaboratorController {
+  constructor(
+    private readonly serviceService: ServiceService,
+    private readonly collaboratorService: CollaboratorService,
+  ) {}
+
+  @Get()
+  @UseGuards(ServicePermissionGuard)
+  @Permission("view")
+  @ApiOperation({ summary: "Get all collaborators for a service" })
+  @ApiResponse({
+    status: 200,
+    description: "List of collaborators for the service",
+  })
+  async getCollaborators(
+    @Param("owner") owner: string,
+    @Param("name") name: string,
+    @Param("version") version: string,
+    @Request() req,
+  ) {
+    owner = decodeURIComponent(owner)
+    name = decodeURIComponent(name)
+    version = decodeURIComponent(version)
+
+    const service = req.service
+    if (!service) {
+      throw new HttpException("Service not found", HttpStatus.NOT_FOUND)
     }
-  
-    @Post()
-    @ApiOperation({ summary: "Add a collaborator to a service" })
-    @ApiResponse({
-      status: 201,
-      description: "Collaborator added successfully",
-      type: MockerResponse,
-    })
-    async addCollaborator(
-      @Param("name") name: string,
-      @Param("version") version: string,
-      @Body() addCollaboratorDto: AddCollaboratorDto,
-      @Request() req,
-    ) {
-      name = decodeURIComponent(name)
-      version = decodeURIComponent(version)
-  
-      const service = await this.serviceService.findOneByNameAndVersion(name, version)
-      if (!service) {
-        throw new HttpException("Service not found", HttpStatus.NOT_FOUND)
-      }
-  
-      // Check if user is owner
-      const userId = req.user.userId
-      if (service.owner.toString() !== userId) {
-        throw new HttpException("Only the owner can add collaborators", HttpStatus.FORBIDDEN)
-      }
-  
-      await this.collaboratorService.addCollaborator(service._id, addCollaboratorDto.email)
-      return new MockerResponse(201, "Collaborator added successfully")
-    }
-  
-    @Delete()
-    @ApiOperation({ summary: "Remove a collaborator from a service" })
-    @ApiResponse({
-      status: 200,
-      description: "Collaborator removed successfully",
-      type: MockerResponse,
-    })
-    async removeCollaborator(
-      @Param("name") name: string,
-      @Param("version") version: string,
-      @Body() removeCollaboratorDto: RemoveCollaboratorDto,
-      @Request() req,
-    ) {
-      name = decodeURIComponent(name)
-      version = decodeURIComponent(version)
-  
-      const service = await this.serviceService.findOneByNameAndVersion(name, version)
-      if (!service) {
-        throw new HttpException("Service not found", HttpStatus.NOT_FOUND)
-      }
-  
-      // Check if user is owner
-      const userId = req.user.userId
-      if (service.owner.toString() !== userId) {
-        throw new HttpException("Only the owner can remove collaborators", HttpStatus.FORBIDDEN)
-      }
-  
-      await this.collaboratorService.removeCollaborator(service._id, removeCollaboratorDto.email)
-      return new MockerResponse(200, "Collaborator removed successfully")
-    }
+
+    return this.collaboratorService.getCollaborators(service._id)
   }
-  
-  
+
+  @Post()
+  @UseGuards(ServicePermissionGuard)
+  @ApiOperation({ summary: "Add a collaborator to a service" })
+  @ApiResponse({
+    status: 201,
+    description: "Collaborator added successfully",
+    type: MockerResponse,
+  })
+  async addCollaborator(
+    @Param("owner") owner: string,
+    @Param("name") name: string,
+    @Param("version") version: string,
+    @Body() addCollaboratorDto: AddCollaboratorDto,
+    @Request() req,
+  ) {
+    owner = decodeURIComponent(owner)
+    name = decodeURIComponent(name)
+    version = decodeURIComponent(version)
+
+    const service = req.service
+    if (!service) {
+      throw new HttpException("Service not found", HttpStatus.NOT_FOUND)
+    }
+
+    await this.collaboratorService.addCollaborator(service._id, addCollaboratorDto.email)
+    return new MockerResponse(201, "Collaborator added successfully")
+  }
+
+  @Delete()
+  @UseGuards(ServicePermissionGuard)
+  @ApiOperation({ summary: "Remove a collaborator from a service" })
+  @ApiResponse({
+    status: 200,
+    description: "Collaborator removed successfully",
+    type: MockerResponse,
+  })
+  async removeCollaborator(
+    @Param("owner") owner: string,
+    @Param("name") name: string,
+    @Param("version") version: string,
+    @Body() removeCollaboratorDto: RemoveCollaboratorDto,
+    @Request() req,
+  ) {
+    owner = decodeURIComponent(owner)
+    name = decodeURIComponent(name)
+    version = decodeURIComponent(version)
+
+    const service = req.service
+    if (!service) {
+      throw new HttpException("Service not found", HttpStatus.NOT_FOUND)
+    }
+
+    await this.collaboratorService.removeCollaborator(service._id, removeCollaboratorDto.email)
+    return new MockerResponse(200, "Collaborator removed successfully")
+  }
+}
+
+
+src/controllers/mocker.controller.ts
 import { All, Controller, Headers, HttpException, HttpStatus, Param, Req, Res, UseGuards } from "@nestjs/common"
 import { ApiExcludeController } from "@nestjs/swagger"
 import { Request, Response } from "express"
@@ -473,9 +546,11 @@ import { JwtAuthGuard } from "src/auth/guards/jwt-auth.guard"
 import { ResponseService } from "src/services/response.service"
 import { ServiceService } from "src/services/service.service"
 import { CollaboratorService } from "src/services/collaborator.service"
+import { ServicePermissionGuard } from "src/auth/guards/service-permission.guard"
+import { Permission } from "src/auth/decorators/permission.decorator"
 
 @ApiExcludeController()
-@Controller("/api/mocks/:name/:version/*")
+@Controller("/api/mocks/:owner/:name/:version/*")
 @UseGuards(JwtAuthGuard)
 export class MockerController {
   constructor(
@@ -485,8 +560,10 @@ export class MockerController {
   ) {}
 
   @All()
+  @UseGuards(ServicePermissionGuard)
+  @Permission("view")
   async handleMocks(
-    @Req() request: Request,
+    @Req() request,
     @Param() params: string[],
     @Res() res: Response,
     @Headers("X-SuperMockio-Status") hdrStatus: number,
@@ -494,24 +571,10 @@ export class MockerController {
   ) {
     const responseCriteria = {
       method: request.method.toLowerCase(),
-      path: "/" + request.path.split("/").slice(5).join("/"),
-      name: decodeURIComponent(params["name"]),
-      version: decodeURIComponent(params["version"]),
+      path: "/" + request.path.split("/").slice(6).join("/"),
     }
 
-    const service = await this.serviceService.findOneByNameAndVersion(responseCriteria.name, responseCriteria.version)
-    if (!service) {
-      throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
-    }
-
-    // Check if user has access to this service
-    const userId = request.user["userId"]
-    const isOwner = await this.collaboratorService.isOwner(service._id, userId)
-    const isCollaborator = await this.collaboratorService.isCollaborator(service._id, userId)
-
-    if (!isOwner && !isCollaborator) {
-      throw new HttpException("Unauthorized access to this service", HttpStatus.FORBIDDEN)
-    }
+    const service = request.service
 
     let fetchedRes = await this.responseService.findOneByServiceCriteria(
       service._id,
@@ -545,6 +608,7 @@ export class MockerController {
 }
 
 
+src/controllers/service.controller.ts
 import {
   Controller,
   Delete,
@@ -558,6 +622,7 @@ import {
   UseGuards,
   UseInterceptors,
   Request,
+  Req,
 } from "@nestjs/common"
 import { ServiceService } from "src/services/service.service"
 import { createServiceDto } from "src/dtos/createServiceDto"
@@ -602,19 +667,21 @@ export class ServiceController {
     return await this.serviceService.findAllForUser(req.user.userId)
   }
 
-  @Get("/:name/:version")
+  @Get("/:owner/:name/:version")
   @UseGuards(ServicePermissionGuard)
   @Permission("view")
   async getServiceResponses(
+    @Req() req,
+    @Param("owner") owner: string,
     @Param("name") name: string,
     @Param("version") version: string,
   ): Promise<{ service: Service; responses: Response[] }> {
+    owner = decodeURIComponent(owner)
     name = decodeURIComponent(name)
     version = decodeURIComponent(version)
 
-    const service = await this.serviceService.findOneByNameAndVersion(name, version)
-  
-    if (!service) throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
+    const service = req.service
+
     const responses = await this.responseService.findByService(service._id)
     return { service, responses }
   }
@@ -630,16 +697,14 @@ export class ServiceController {
       },
     },
   })
-  @Get("/spec/:name/:version")
+  @Get("/spec/:owner/:name/:version")
   @UseGuards(ServicePermissionGuard)
   @Permission("view")
-  async getServiceSpec(@Param("name") name: string, @Param("version") version: string): Promise<any> {
-    name = decodeURIComponent(name)
-    version = decodeURIComponent(version)
-    const service = await this.serviceService.findOneByNameAndVersion(name, version)
-    if (!service) {
-      throw new HttpException("The service cannot be found", HttpStatus.NOT_FOUND)
-    }
+  async getServiceSpec(
+    @Req() req,
+  ): Promise<any> {
+
+    const service = req.service
     // Return only the openapi field
     return { openapi: service.openapi }
   }
@@ -650,14 +715,20 @@ export class ServiceController {
     type: MockerResponse,
     example: new MockerResponse(200, "Responses Deleted successfully"),
   })
-  @Delete("/:name/:version")
+  @Delete("/:owner/:name/:version")
   @UseGuards(ServicePermissionGuard)
   @Permission("delete")
-  async deleteServicesResponses(@Param("name") name: string, @Param("version") version: string): Promise<any> {
+  async deleteServicesResponses(
+    @Req() req,
+    @Param("owner") owner: string,
+    @Param("name") name: string,
+    @Param("version") version: string,
+  ): Promise<any> {
+    owner = decodeURIComponent(owner)
     name = decodeURIComponent(name)
     version = decodeURIComponent(version)
-    const service = await this.serviceService.findOneByNameAndVersion(name, version)
-    if (!service) throw new HttpException("Service doesn't exists", HttpStatus.NOT_FOUND)
+
+    const service = req.service
     await this.responseService.deleteByService(service._id)
     await this.serviceService.delete(service._id)
     return new MockerResponse(200, "Responses Deleted successfully")
@@ -689,10 +760,14 @@ export class ServiceController {
   ): Promise<any> {
     const newService = new createServiceDto()
     newService.openapi = parse(file.buffer.toString())
-    const exist = await this.serviceService.findOneByNameAndVersion(
+
+    // Check if service already exists for this owner
+    const exist = await this.serviceService.findOneByOwnerNameAndVersion(
+      req.user.username,
       newService.openapi.info.title,
       newService.openapi.info.version,
     )
+
     // override query param used to override an existing service
     if (override == 0 && exist) {
       if (exist) throw new HttpException("Service already exists", HttpStatus.CONFLICT)
@@ -722,6 +797,7 @@ export class ServiceController {
     return new MockerResponse(201, {
       message: "Service added successfully",
       service: {
+        owner: req.user.username,
         name: createdService.name,
         version: createdService.version,
       },
@@ -730,6 +806,7 @@ export class ServiceController {
 }
 
 
+src/dtos/auth.dto.ts
 import { ApiProperty } from "@nestjs/swagger"
 import { IsEmail, IsNotEmpty, IsString, MinLength } from "class-validator"
 
@@ -770,6 +847,7 @@ export class JwtPayload {
 }
 
 
+src/dtos/collaborator.dto.ts
 import { ApiProperty } from "@nestjs/swagger"
 import { IsEmail, IsNotEmpty } from "class-validator"
 
@@ -788,6 +866,7 @@ export class RemoveCollaboratorDto {
 }
 
 
+src/dtos/createResponseDto.ts
 import { Service } from "src/schemas/service.schema";
 import { createServiceDto } from "./createServiceDto";
 import mongoose from "mongoose";
@@ -801,6 +880,7 @@ export class CreateResponseDto {
     exampleName?: string;
 }
 
+src/dtos/createServiceDto.ts
 import { Types } from "mongoose"
 
 export class createServiceDto {
@@ -813,57 +893,155 @@ export class createServiceDto {
 }
 
 
+src/dtos/FileUploadDto.ts
 import { ApiProperty } from "@nestjs/swagger";
 
 export class FileUploadDto {
     @ApiProperty({ type: 'string', format: 'binary' })
     file: any;
   }
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { exit } from 'process';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { NestExpressApplication } from '@nestjs/platform-express';
-import { join } from 'path';
+src/filters/http-exception.filter.ts
+import { type ExceptionFilter, Catch, type ArgumentsHost, HttpException, HttpStatus, Logger } from "@nestjs/common"
+import { Request, Response } from "express"
 
+@Catch()
+export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name)
+
+  catch(exception: any, host: ArgumentsHost) {
+    const ctx = host.switchToHttp()
+    const response = ctx.getResponse<Response>()
+    const request = ctx.getRequest<Request>()
+
+    let status = HttpStatus.INTERNAL_SERVER_ERROR
+    let message = "Internal server error"
+    let errorData = null
+
+    if (exception instanceof HttpException) {
+      status = exception.getStatus()
+      const exceptionResponse = exception.getResponse()
+
+      if (typeof exceptionResponse === "object") {
+        message = exceptionResponse["message"] || exception.message
+        errorData = exceptionResponse["error"] || null
+      } else {
+        message = exceptionResponse || exception.message
+      }
+    } else {
+      this.logger.error(`Unhandled exception: ${exception.message}`, exception.stack)
+    }
+
+    response.status(status).json({
+      status,
+      message,
+      error: errorData,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+    })
+  }
+}
+
+
+src/interceptors/response.interceptor.ts
+import { Injectable, type NestInterceptor, type ExecutionContext, type CallHandler, HttpStatus } from "@nestjs/common"
+import { Observable } from "rxjs"
+import { map } from "rxjs/operators"
+
+export interface Response<T> {
+  status: number
+  message: string
+  data?: T
+  timestamp: string
+  path: string
+}
+
+@Injectable()
+export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
+    const request = context.switchToHttp().getRequest()
+    const statusCode = context.switchToHttp().getResponse().statusCode
+
+    return next.handle().pipe(
+      map((data) => {
+        // If data is already in our format, return it as is
+        if (data && data.status && data.message) {
+          return {
+            ...data,
+            timestamp: new Date().toISOString(),
+            path: request.url,
+          }
+        }
+
+        // Otherwise, format the response
+        return {
+          status: statusCode || HttpStatus.OK,
+          message: "Success",
+          data,
+          timestamp: new Date().toISOString(),
+          path: request.url,
+        }
+      }),
+    )
+  }
+}
+
+
+src/main.ts
+import { NestFactory } from "@nestjs/core"
+import { AppModule } from "./app.module"
+import { exit } from "process"
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger"
+import { NestExpressApplication } from "@nestjs/platform-express"
+import { HttpExceptionFilter } from "./filters/http-exception.filter"
+import { ResponseInterceptor } from "./interceptors/response.interceptor"
+import { ValidationPipe } from "@nestjs/common"
 
 async function bootstrap() {
-  if (!process.env['MONGO_PASSWORD'] || !process.env['MONGO_USER'] || !process.env['MONGO_HOST'] || !process.env['MONGO_DATABASE']) {
-    console.error("You need to set the required environment variables");
+  if (
+    !process.env["MONGO_PASSWORD"] ||
+    !process.env["MONGO_USER"] ||
+    !process.env["MONGO_HOST"] ||
+    !process.env["MONGO_DATABASE"]
+  ) {
+    console.error("You need to set the required environment variables")
     console.error(`- MONGO_USER
 - MONGO_HOST
 - MONGO_PASSWORD
 - MONGO_DATABASE
-- AI_GENERATION_ENABLED`);
+- AI_GENERATION_ENABLED`)
     exit(1)
-    
   }
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule)
 
   app.enableCors({
-    origin: '*'
-  });
+    origin: "*",
+  })
 
+  // Apply global pipes, filters, and interceptors
+  app.useGlobalPipes(new ValidationPipe({ transform: true }))
+  app.useGlobalFilters(new HttpExceptionFilter())
+  app.useGlobalInterceptors(new ResponseInterceptor())
 
-  
   const config = new DocumentBuilder()
-  .setTitle('SuperMockio')
-  .setDescription(`SuperMockio is a powerful tool designed to accelerate API development by generating mock backends directly from OpenAPI specifications. 
+    .setTitle("SuperMockio")
+    .setDescription(`SuperMockio is a powerful tool designed to accelerate API development by generating mock backends directly from OpenAPI specifications. 
    \n Whether you're an API designer, frontend or backend developer, or project manager. 
    \n SuperMockio empowers you to create realistic mock APIs for various use cases, such as client demos, decoupling frontend and backend development, or testing API integrations`)
-  .setVersion('1.0.0')
-  .addTag('services')
-  .addServer('http://supermockio.io')
-  .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api-doc', app, document, {
-    yamlDocumentUrl: "swagger/yaml"
-  });
+    .setVersion("1.0.0")
+    .addTag("services")
+    .addServer("http://supermockio.io")
+    .build()
+  const document = SwaggerModule.createDocument(app, config)
+  SwaggerModule.setup("api-doc", app, document, {
+    yamlDocumentUrl: "swagger/yaml",
+  })
 
-  await app.listen(process.env.PORT || 3000);
+  await app.listen(process.env.PORT || 3000)
 }
-bootstrap();
+bootstrap()
 
+
+src/schemas/response.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
 import { Service } from './service.schema';
@@ -900,9 +1078,10 @@ export class Response {
 
 export const ResponseSchema = SchemaFactory.createForClass(Response);
 
+src/schemas/service.schema.ts
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose"
 import { ApiProperty } from "@nestjs/swagger"
-import mongoose, { type HydratedDocument, Types } from "mongoose"
+import mongoose, { type HydratedDocument, type Types } from "mongoose"
 import { User } from "./user.schema"
 
 export type ServiceDocument = HydratedDocument<Service>
@@ -933,7 +1112,7 @@ export class Service {
 
   @ApiProperty({ description: "Users who can view this service" })
   @Prop({ type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], default: [] })
-  collaborators: (Types.ObjectId)[]
+  collaborators: Types.ObjectId[]
 
   constructor(id, name, version, description, openapi) {
     this._id = id
@@ -944,9 +1123,11 @@ export class Service {
   }
 }
 
+
 export const ServiceSchema = SchemaFactory.createForClass(Service)
+ServiceSchema.index({ owner: 1, name: 1, version: 1 }, { unique: true })
 
-
+src/schemas/user.schema.ts
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose"
 import { ApiProperty } from "@nestjs/swagger"
 import { HydratedDocument, Types } from "mongoose"
@@ -981,6 +1162,7 @@ export class User {
 export const UserSchema = SchemaFactory.createForClass(User)
 
 
+src/services/collaborator.service.ts
 import { Injectable, HttpException, HttpStatus } from "@nestjs/common"
 import { InjectModel } from "@nestjs/mongoose"
 import { Model, Types } from "mongoose"
@@ -1079,6 +1261,7 @@ export class CollaboratorService {
 }
 
 
+src/services/GeminiService.ts
 import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai"
 import { Injectable } from "@nestjs/common"
 import { RateLimiter } from "limiter"
@@ -1121,6 +1304,7 @@ export class GeminiService implements AIServiceInterface {
         return text
     }
 }
+src/services/response.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -1211,6 +1395,7 @@ export class ResponseService {
   }
 
 }
+src/services/service.service.ts
 import { Injectable } from "@nestjs/common"
 import { InjectModel } from "@nestjs/mongoose"
 import { Model, Types } from "mongoose"
@@ -1221,12 +1406,15 @@ import { CreateResponseDto } from "src/dtos/createResponseDto"
 import { MockerUtils, Parameter } from "src/utils/MockerUtils"
 import { engine } from "src/utils/examples-engine/example-resolution-engine"
 import { ExampleResolutionContext } from "src/utils/examples-engine/rules/rules.type"
+import { User } from "src/schemas/user.schema"
 
 @Injectable()
 export class ServiceService {
-  constructor(@InjectModel(Service.name) private readonly serviceModel: Model<Service>, private readonly responseService: ResponseService) {
-
-  }
+  constructor(
+    @InjectModel(Service.name) private readonly serviceModel: Model<Service>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    private readonly responseService: ResponseService
+  ) {}
 
   async create(createServiceDto: createServiceDto): Promise<Service> {
     const createdService = await this.serviceModel.create(createServiceDto)
@@ -1243,8 +1431,8 @@ export class ServiceService {
         $or: [{ owner: userId }, { collaborators: userId }],
       })
       .select(["name", "version", "description", "openapi", "owner", "collaborators"])
-      .populate({path: "collaborators", select: "email username"})
-      .populate('owner', ["email", "username"])
+      .populate({ path: "collaborators", select: "email username" })
+      .populate("owner", ["email", "username"])
   }
 
   async findOne(id: string): Promise<Service> {
@@ -1256,9 +1444,30 @@ export class ServiceService {
   }
 
   async findOneByNameAndVersion(name: string, version: string): Promise<Service> {
-    return await this.serviceModel.findOne({ name, version }).populate({path: "collaborators", select: "email username"})
-    .populate('owner', ["email", "username"])
-    .exec()
+    return await this.serviceModel
+      .findOne({ name, version })
+      .populate({ path: "collaborators", select: "email username" })
+      .populate("owner", ["email", "username"])
+      .exec()
+  }
+
+  async findOneByOwnerNameAndVersion(ownerUsername: string, name: string, version: string): Promise<Service> {
+    // First find the owner by username
+    const owner = await this.userModel.findOne({ username: ownerUsername }).exec()
+    if (!owner) {
+      return null
+    }
+
+    // Then find the service by owner, name, and version
+    return await this.serviceModel
+      .findOne({
+        owner: owner._id,
+        name,
+        version,
+      })
+      .populate({ path: "collaborators", select: "email username" })
+      .populate("owner", ["email", "username"])
+      .exec()
   }
 
   async delete(id: Types.ObjectId) {
@@ -1333,6 +1542,7 @@ export class ServiceService {
 }
 
 
+src/utils/AIServiceHandler.ts
 import { GeminiService } from "src/services/GeminiService";
 import { AIServiceInterface } from "./AIServiceInterface";
 
@@ -1346,10 +1556,12 @@ export class AIServiceHandler {
         }
     }
 }
+src/utils/AIServiceInterface.ts
 
 export interface AIServiceInterface {
     ask(prompt: string) : any
 }
+src/utils/examples-engine/example-resolution-engine.ts
 import { IExampleRule, ExampleResolutionContext, ExampleResolutionResult } from "./rules/rules.type";
 import { SingleExampleRule, MultipleExamplesRule, AIGenerationRule } from "./rules/single-example-rule";
 
@@ -1393,6 +1605,7 @@ export const engine = new ExampleResolutionEngine([
 ]);
 
 
+src/utils/examples-engine/rules/rules.type.ts
 /**
  * The context that will be passed to each example resolution rule.
  */
@@ -1475,6 +1688,7 @@ export abstract class BaseExampleRule implements IExampleRule {
      */
     protected abstract process(context: ExampleResolutionContext): Promise<ExampleResolutionResult | null>;
 }
+src/utils/examples-engine/rules/single-example-rule.ts
 // concrete-example-rules.ts
 
 import { BaseExampleRule, ExampleResolutionContext, ExampleResolutionResult } from './rules.type';
@@ -1571,19 +1785,43 @@ export class AIGenerationRule extends BaseExampleRule {
   }
 }
 
+src/utils/MockerResponse.ts
 import { ApiProperty } from "@nestjs/swagger"
 
-export class MockerResponse{
-    @ApiProperty()
-    status: number
-    @ApiProperty()
-    message: any
+export class MockerResponse {
+  @ApiProperty()
+  status: number
 
-    public constructor(status: number, message: any){
-        this.status = status
-        this.message = message
+  @ApiProperty()
+  message: string
+
+  @ApiProperty({ required: false })
+  data?: any
+
+  @ApiProperty()
+  timestamp: string
+
+  @ApiProperty({ required: false })
+  path?: string
+
+  public constructor(status: number, message: any, data?: any) {
+    this.status = status
+
+    // If message is an object with a message property, extract it
+    if (typeof message === "object" && message !== null && message.message) {
+      this.data = message
+      this.message = message.message
+    } else {
+      this.message = typeof message === "string" ? message : "Success"
+      this.data = typeof message === "object" ? message : data
     }
+
+    this.timestamp = new Date().toISOString()
+  }
 }
+
+
+src/utils/MockerUtils.ts
 // Updated MockerUtils.ts
 import { faker } from '@faker-js/faker';
 import { randomInt } from 'crypto';

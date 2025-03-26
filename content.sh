@@ -21,6 +21,7 @@ OUTPUT_FILE="project.txt"
 # Find all files recursively in the directory and append their contents to project.txt
 find "$TARGET_DIR" -type f | while read -r file; do
   echo "Appending contents of: $file"
+  echo "$file" >> "$OUTPUT_FILE"
   cat "$file" >> "$OUTPUT_FILE"
   # Optional: add a newline separator between files
   echo "" >> "$OUTPUT_FILE"
