@@ -179,7 +179,7 @@ export class MockerUtils {
         ? this.resolveRef(param.schema["$ref"], openapi)
         : param.schema
 
-      const aiService = new GeminiService(this.loggingService);
+      const aiService = new GeminiService();
       const prompt = `I want you to generate an example value for my path param: ${param.name} used in this OpenAPI path: ${path}. Return only the generated value.`
 
       const result = await aiService.ask(prompt)

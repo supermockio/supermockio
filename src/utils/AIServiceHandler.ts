@@ -14,18 +14,19 @@ export class AIServiceHandler {
 
   public static getAIService(): AIServiceInterface {
     try {
-      const name = process.env["AI_SERVICE_NAME"]
-
+      const serviceName = process.env["AI_SERVICE_NAME"]
+      
       if (this.loggingService) {
-        this.loggingService.debug(`Getting AI service: ${name}`)
+        this.loggingService.debug(`Getting AI service: ${serviceName}`)
       }
 
-      switch (name) {
+      switch (serviceName) {
         case "gemini":
           if (this.loggingService) {
             this.loggingService.debug("Using Gemini AI service")
           }
-          return new GeminiService(this.loggingService)
+            
+          return new GeminiService()
         default:
           const error = "Please set AI_SERVICE_NAME environment variable to select an AI service to use"
           if (this.loggingService) {

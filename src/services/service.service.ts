@@ -54,6 +54,7 @@ export class ServiceService {
     }
   }
 
+  // TODO: Admin only
   async findAll(): Promise<Service[]> {
     try {
       this.loggingService.debug("Finding all services")
@@ -82,48 +83,6 @@ export class ServiceService {
     } catch (error) {
       this.loggingService.error(`Error finding services for user: ${error.message}`, error.stack, null, {
         userId,
-      })
-      throw error
-    }
-  }
-
-  async findOne(id: string): Promise<Service> {
-    try {
-      this.loggingService.debug(`Finding service by ID: ${id}`)
-      return this.serviceModel.findOne({ _id: id }).exec()
-    } catch (error) {
-      this.loggingService.error(`Error finding service by ID: ${error.message}`, error.stack, null, {
-        serviceId: id,
-      })
-      throw error
-    }
-  }
-
-  async findOneByName(name: string): Promise<Service> {
-    try {
-      this.loggingService.debug(`Finding service by name: ${name}`)
-      return await this.serviceModel.findOne({ name: name }).exec()
-    } catch (error) {
-      this.loggingService.error(`Error finding service by name: ${error.message}`, error.stack, null, {
-        name,
-      })
-      throw error
-    }
-  }
-
-  async findOneByNameAndVersion(name: string, version: string): Promise<Service> {
-    try {
-      this.loggingService.debug(`Finding service by name and version: ${name}@${version}`)
-
-      return await this.serviceModel
-        .findOne({ name, version })
-        .populate({ path: "collaborators", select: "email username" })
-        .populate("owner", ["email", "username"])
-        .exec()
-    } catch (error) {
-      this.loggingService.error(`Error finding service by name and version: ${error.message}`, error.stack, null, {
-        name,
-        version,
       })
       throw error
     }
@@ -249,6 +208,11 @@ export class ServiceService {
                     method,
                   },
                 }
+                
+
+                this.loggingService.debug(`Context built for response code: ${code} ${JSON.stringify(context)}`, null, {
+                  context,
+                })
 
                 // Resolve the example(s) for the given response.
                 const resolutionResult = await engine.resolve(context)
