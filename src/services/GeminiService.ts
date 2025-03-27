@@ -4,27 +4,29 @@ import { RateLimiter } from "limiter"
 import { AIServiceInterface } from "src/utils/AIServiceInterface"
 import { LoggingService } from "src/logging/logging.service"
 
-@Injectable()
 export class GeminiService implements AIServiceInterface {
   private model: GenerativeModel
   private rateLimiter: RateLimiter
+  private loggingService: LoggingService
 
-  constructor(private readonly loggingService: LoggingService) {
+  constructor() {
+    this.loggingService = new LoggingService()
     this.loggingService.setContext("GeminiService")
   }
 
-  private getModel() {
+  public getModel() {
     try {
       if (!this.model) {
-        const apiKey = process.env["GEMINI_API_KEY"]
+        const apiKey = process.env["AI_API_KEY"]
+        const modelName = process.env["AI_MODEL_NAME"]
         if (!apiKey) {
-          const error = "GEMINI_API_KEY environment variable is not set"
+          const error = "AI_API_KEY environment variable is not set"
           this.loggingService.error(error)
           throw new Error(error)
         }
 
         this.loggingService.debug("Initializing Gemini model")
-        this.model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: "gemini-1.5-flash" })
+        this.model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName })
         this.loggingService.debug("Gemini model initialized successfully")
       }
       return this.model
@@ -36,7 +38,7 @@ export class GeminiService implements AIServiceInterface {
 
   private getRateLimiter() {
     if (!this.rateLimiter) {
-      const tokensPerInterval = Number.parseInt(process.env["GEMINI_RATE_LIMIT_TOKENS"] || "15")
+      const tokensPerInterval = Number.parseInt(process.env["AI_RATE_LIMIT_TOKENS"] || "15")
       const interval = "min"
 
       this.loggingService.debug(`Initializing rate limiter: ${tokensPerInterval} tokens per ${interval}`)
@@ -51,7 +53,7 @@ export class GeminiService implements AIServiceInterface {
       const cleanedResponse = response.replace(/```json|```/g, "")
 
       // Parse the cleaned JSON string
-      const jsonData = JSON.parse(cleanedResponse)
+      const jsonData = cleanedResponse.includes("{") ? JSON.parse(cleanedResponse) : cleanedResponse
 
       return jsonData
     } catch (error) {

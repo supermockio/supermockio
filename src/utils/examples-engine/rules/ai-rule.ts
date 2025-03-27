@@ -47,7 +47,7 @@ export class AIGenerationRule extends BaseExampleRule {
                 exampleNames: ["fallback-ai-disabled"],
               }
             }
-  
+            
             // Always use AI generation if we reach this rule.
             const aiExample = await MockerUtils.generateExampleWithAI(content.schema, context.openapi, context.operation)
   

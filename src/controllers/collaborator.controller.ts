@@ -56,6 +56,7 @@ export class CollaboratorController {
 
   @Post()
   @UseGuards(ServicePermissionGuard)
+  @Permission("edit")
   @ApiOperation({ summary: "Add a collaborator to a service" })
   @ApiResponse({
     status: 201,
@@ -84,6 +85,7 @@ export class CollaboratorController {
 
   @Delete()
   @UseGuards(ServicePermissionGuard)
+  @Permission("delete")
   @ApiOperation({ summary: "Remove a collaborator from a service" })
   @ApiResponse({
     status: 200,
