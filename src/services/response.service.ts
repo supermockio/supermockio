@@ -53,6 +53,8 @@ export class ResponseService {
     if (!responses || responses.length === 0) {
       return null;
     }
+    
+    
     const randomIndex = Math.floor(Math.random() * responses.length);
     return responses[randomIndex];
   }
