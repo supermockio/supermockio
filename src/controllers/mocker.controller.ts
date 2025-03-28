@@ -30,8 +30,9 @@ export class MockerController {
   ) {
     const responseCriteria = {
       method: request.method.toLowerCase(),
-      path: "/" + request.path.split("/").slice(6).join("/"),
+      path: "/" + decodeURI(request.path).split("/").slice(6).join("/"),
     }
+    
 
     const service = request.service
 
@@ -42,7 +43,7 @@ export class MockerController {
       hdrStatus,
       exampleName,
     )
-
+    
     // Check the new env var to decide behavior.
     const strictMode = process.env.MOCKER_STRICT_MODE === "true"
     if (!fetchedRes) {

@@ -35,7 +35,7 @@ export class ServiceController {
   constructor(
     private readonly serviceService: ServiceService,
     private readonly responseService: ResponseService,
-  ) {}
+  ) { }
 
   @Get()
   @ApiResponse({
@@ -186,7 +186,10 @@ export class ServiceController {
     return new MockerResponse(201, {
       message: "Service added successfully",
       service: {
-        owner: req.user.username,
+        owner: {
+          username: req.user.username,
+          email: req.user.email
+        },
         name: createdService.name,
         version: createdService.version,
       },

@@ -16,10 +16,12 @@ import { CollaboratorController } from "./controllers/collaborator.controller"
 import { ServicePermissionGuard } from "./auth/guards/service-permission.guard"
 import { LoggingModule } from "./logging/logging.module"
 import { LoggingMiddleware } from "./logging/logging.middleware"
+import { EmailModule } from "./email/email.module"
 
 @Module({
   imports: [
     ConfigModule,
+    EmailModule,
     LoggingModule,
     // MongoDB Connection Config
     MongooseModule.forRoot(new ConfigService().getMongoConfig()),
